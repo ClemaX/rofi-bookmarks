@@ -29,7 +29,7 @@ BOOKMARK_ROOT=5
 validate_id()
 {
 	local id="$1"
-	local message="$FUNCNAME: ${2:-id} must be a positive integer!"
+	local message="${FUNCNAME[0]}: ${2:-id} must be a positive integer!"
 
 	if ! [[ "$id" =~ ^[0-9]+$ ]] ; then
 		echo "$message" >&2
@@ -37,73 +37,61 @@ validate_id()
 	fi
 }
 
-moz_bookmark_parent_id()
+rofi_render()
 {
-	local id="$1"
+	local b_id b_type b_title
+	local p_title p_sitename p_description p_url
 
-	validate_id "$id"
+	local title icon info meta
 
-	local query="SELECT parent
-FROM moz_bookmarks WHERE id=$id"
+	while IFS='|' read -r b_id b_type b_parent b_title \
+		p_title p_sitename p_description p_url
+	do
+		title="${b_title:-${p_title:-${p_sitename:-$p_url}}}"
+		if [ "$b_type" = "$BOOKMARK_DIRECTORY" ]
+		then
+			icon='folder'
+		elif [ "$b_type" = "$BOOKMARK_FILE" ]
+		then
+			icon='link'
+		fi
+		info="$b_type:$b_id:$b_parent:$p_url"
+		meta="$p_url $p_description"
 
-	sqlite3 "$db" <<< "$query"
+		echo -e "$title\0icon\x1f$icon\x1finfo\x1f$info\x1fmeta\x1f$meta"
+	done
 }
 
-moz_bookmarks() # db [parent_id]
+rofi_info() # [dest_type] [dest_id] [dest_backref] [dest_url]
+{
+	IFS=':' read -r "$@" <<< "$ROFI_INFO"
+}
+
+moz_bookmarks() # db [parent_id] [backref_id]
 {
 	local db="$1"
 	local parent_id="${2:-$BOOKMARK_ROOT}"
+	local backref_id="${3:-$BOOKMARK_ROOT}"
 
 	validate_id "$parent_id" "parent_id"
+	[ -n "$backref_id" ] || validate_id "$backref_id" "backref_id"
 
 	local query="SELECT
 	b.id, b.type, b.parent, b.title,
 	p.title, p.site_name, p.description, p.url
 FROM moz_bookmarks as b
-LEFT OUTER JOIN moz_places AS p ON b.fk=p.id
-WHERE b.parent=$parent_id
-ORDER BY b.type desc, b.title asc;"
-
-	local b_id b_type b_title
-	local p_title p_sitename p_description p_url
-
-	local title
+LEFT OUTER JOIN moz_places AS p ON b.fk=p.id"
 
 	if [ "$parent_id" != "$BOOKMARK_ROOT" ]
 	then
-		b_id=$(moz_bookmark_parent_id "$parent_id")
-		echo -e "..\0icon\x1ffolder\x1finfo\x1f$BOOKMARK_DIRECTORY:$b_id"
+		query+=" WHERE b.parent=$parent_id"
+
+		echo -e "..\0icon\x1ffolder\x1finfo\x1f$BOOKMARK_DIRECTORY:$backref_id:$BOOKMARK_ROOT:"
 	fi
 
-	sqlite3 "$db" <<< "$query" \
-	| while IFS='|' read -r b_id b_type b_parent b_title p_title p_sitename p_description p_url
-	do
-		title="${b_title:-${p_title:-${p_sitename:-$p_url}}}"
-		if [ "$b_type" = "$BOOKMARK_DIRECTORY" ]
-		then
-			echo -e "$title\0icon\x1ffolder\x1finfo\x1f$b_type:$b_id"
-		elif [ "$b_type" = "$BOOKMARK_FILE" ]
-		then
-			echo -e "$title\0icon\x1flink\x1finfo\x1f$b_type:$b_id"
-		fi
-	done
-}
+	query+=" ORDER BY b.type desc, b.title asc;"
 
-moz_bookmark_url() # db id
-{
-	local db="$1"
-	local id="$2"
-
-	local query
-
-	validate_id "$id"
-
-	query="SELECT p.url
-FROM moz_bookmarks as b
-LEFT OUTER JOIN moz_places AS p ON b.fk=p.id
-WHERE b.id = $id"
-
-	sqlite3 "$db" <<< "$query"
+	sqlite3 "$db" <<< "$query" | rofi_render
 }
 
 # Get cache directory.
@@ -131,20 +119,24 @@ umask 177
 
 if [ $# -eq 0 ]
 then
+	# TODO: Select firefox profile on first launch
+
 	# Update database.
 	cp -u "$PROFILE/places.sqlite" "$DB_TMP"
 
 	# Extract bookmarks.
 	moz_bookmarks "$DB_TMP" 5
 else
-	b_type="${ROFI_INFO%%:*}"
-	b_type="${b_type:-$BOOKMARK_FILE}"
-	b_id="${ROFI_INFO#*:}"
-	[ "$b_id" = "$ROFI_INFO" ] && b_id=
+	echo "$ROFI_INFO" >&2
+	rofi_info b_type b_id b_backref p_url
+
+	echo "$b_type $b_id $b_backref $p_url" >&2
 
 	if [ "$b_type" -eq "$BOOKMARK_FILE" ]
 	then
-		i3-msg -q "exec xdg-open '$(moz_bookmark_url "$DB_TMP" "$b_id")'"
+		# Replace with coproc when using another wm:
+		# coproc ( xdg-open "$p_url" ) > /dev/null  2>1 )
+		i3-msg -q "exec xdg-open '$p_url'"
 	elif [ "$b_type" -eq "$BOOKMARK_DIRECTORY" ]
 	then
 		moz_bookmarks "$DB_TMP" "$b_id"
