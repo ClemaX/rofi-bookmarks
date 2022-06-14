@@ -89,7 +89,7 @@ ORDER BY b.type desc, b.title asc;"
 	done
 }
 
-moz_bookmark() # db id
+moz_bookmark_url() # db id
 {
 	local db="$1"
 	local id="$2"
@@ -98,9 +98,10 @@ moz_bookmark() # db id
 
 	validate_id "$id"
 
-	query="SELECT id, type, title FROM moz_bookmarks
-WHERE id=$id
-ORDER BY type desc, title asc;"
+	query="SELECT p.url
+FROM moz_bookmarks as b
+LEFT OUTER JOIN moz_places AS p ON b.fk=p.id
+WHERE b.id = $id"
 
 	sqlite3 "$db" <<< "$query"
 }
@@ -128,11 +129,11 @@ mkdir -p "$CACHE_DIR"
 # Files should be accessible only to the current user.
 umask 177
 
-# Copy database.
-cp "$PROFILE/places.sqlite" "$DB_TMP"
-
 if [ $# -eq 0 ]
 then
+	# Update database.
+	cp -u "$PROFILE/places.sqlite" "$DB_TMP"
+
 	# Extract bookmarks.
 	moz_bookmarks "$DB_TMP" 5
 else
@@ -141,17 +142,11 @@ else
 	b_id="${ROFI_INFO#*:}"
 	[ "$b_id" = "$ROFI_INFO" ] && b_id=
 
-	echo "$b_type:$b_id" >&2
-
 	if [ "$b_type" -eq "$BOOKMARK_FILE" ]
 	then
-		echo "TODO: Find url and run firefox"
+		i3-msg -q "exec xdg-open '$(moz_bookmark_url "$DB_TMP" "$b_id")'"
 	elif [ "$b_type" -eq "$BOOKMARK_DIRECTORY" ]
 	then
 		moz_bookmarks "$DB_TMP" "$b_id"
 	fi
-
 fi
-
-# Remove temporary files.
-rm "$DB_TMP"*
