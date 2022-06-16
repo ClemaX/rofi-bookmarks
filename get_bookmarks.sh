@@ -41,11 +41,12 @@ rofi_render()
 {
 	local b_id b_type b_title
 	local p_title p_sitename p_description p_url
+	local tags
 
 	local title icon info meta
 
 	while IFS='|' read -r b_id b_type b_parent b_title \
-		p_title p_sitename p_description p_url
+		p_title p_sitename p_description p_url tags
 	do
 		title="${b_title:-${p_title:-${p_sitename:-$p_url}}}"
 		if [ "$b_type" = "$BOOKMARK_DIRECTORY" ]
@@ -56,7 +57,7 @@ rofi_render()
 			icon='link'
 		fi
 		info="$b_type:$b_id:$b_parent:$p_url"
-		meta="$p_url $p_description"
+		meta="$tags $p_url $p_description"
 
 		echo -e "$title\0icon\x1f$icon\x1finfo\x1f$info\x1fmeta\x1f$meta"
 	done
@@ -78,9 +79,13 @@ moz_bookmarks() # db [parent_id] [backref_id]
 
 	local query="
 SELECT
-	b.id, b.type, b.parent, b.title, p.title, p.site_name, p.description, p.url
+	b.id, b.type, b.parent, b.title,
+	p.title, p.site_name, p.description, p.url,
+	GROUP_CONCAT(t.title, ', ')
 FROM
 	moz_bookmarks as b
+LEFT JOIN
+	moz_bookmarks as t ON b.type=$BOOKMARK_FILE AND b.parent=t.id
 LEFT OUTER JOIN
 	moz_places AS p ON b.fk=p.id"
 
