@@ -76,11 +76,13 @@ moz_bookmarks() # db [parent_id] [backref_id]
 	validate_id "$parent_id" "parent_id"
 	[ -n "$backref_id" ] || validate_id "$backref_id" "backref_id"
 
-	local query="SELECT
-	b.id, b.type, b.parent, b.title,
-	p.title, p.site_name, p.description, p.url
-FROM moz_bookmarks as b
-LEFT OUTER JOIN moz_places AS p ON b.fk=p.id"
+	local query="
+SELECT
+	b.id, b.type, b.parent, b.title, p.title, p.site_name, p.description, p.url
+FROM
+	moz_bookmarks as b
+LEFT OUTER JOIN
+	moz_places AS p ON b.fk=p.id"
 
 	if [ "$parent_id" != "$BOOKMARK_ROOT" ]
 	then
@@ -89,7 +91,13 @@ LEFT OUTER JOIN moz_places AS p ON b.fk=p.id"
 		echo -e "..\0icon\x1ffolder\x1finfo\x1f$BOOKMARK_DIRECTORY:$backref_id:$BOOKMARK_ROOT:"
 	fi
 
-	query+=" ORDER BY b.type desc, b.title asc;"
+	query+="
+GROUP BY
+CASE
+	WHEN b.type=$BOOKMARK_FILE THEN b.fk ELSE b.id
+END
+ORDER BY
+	b.type desc, b.title asc;"
 
 	sqlite3 "$db" <<< "$query" | rofi_render
 }
