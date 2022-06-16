@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+rofi -show bookmarks -modi "bookmarks:./get_bookmarks.sh" -show-icons
